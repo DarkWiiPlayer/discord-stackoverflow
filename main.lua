@@ -60,6 +60,8 @@ fiber.create(function()
 			return a.creation_date < b.creation_date
 		end)
 
+		print("Quota remaining:", payload.quota_remaining)
+
 		for i, question in ipairs(payload.items) do
 			new[question.question_id] = true
 
