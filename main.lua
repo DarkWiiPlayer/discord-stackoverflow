@@ -2,6 +2,9 @@ local fiber = require 'fiber'
 local json = require 'json'
 local client = require('http.client').new{}
 local uri = require('uri')
+local console = require 'console'
+
+console.listen("unix/:/tmp/tarantool.sock")
 
 local arrr = require 'arrr.arrr'
 
@@ -46,47 +49,52 @@ local function newer(a, b)
 end
 
 fiber.create(function()
-	local known = {}
-	while true do
-		local new = {}
+	xpcall(function()
+		local known = {}
+		while true do
+			local new = {}
 
-		local response = client:request("GET", url(), "", {
-			accept_encoding="gzip";
-		})
+			local response = client:request("GET", url(), "", {
+				accept_encoding="gzip";
+			})
 
-		local payload = json.decode(response.body)
+			local payload = json.decode(response.body)
 
-		table.sort(payload.items, function(a, b)
-			return a.creation_date < b.creation_date
-		end)
+			table.sort(payload.items, function(a, b)
+				return a.creation_date < b.creation_date
+			end)
 
-		print("Quota remaining:", payload.quota_remaining)
+			print("Quota remaining:", payload.quota_remaining)
 
-		for i, question in ipairs(payload.items) do
-			new[question.question_id] = true
+			for i, question in ipairs(payload.items) do
+				new[question.question_id] = true
 
-			if not known[question.question_id] then
-				local body = json.encode{
-					embeds = {
-						{
-							title = question.title:gsub("LUA", "Lua");
-							description = string.format("Asked *%s*\nTags: %s",
-								os.date("!%A %H:%M:%S UTC", time(question.creation_date)),
-								table.concat(question.tags, ", "):gsub("[^,%s]+", "`%0`")
-							);
-							url = question.link;
-							color = '16023588';
+				if not known[question.question_id] then
+					local body = json.encode{
+						embeds = {
+							{
+								title = question.title:gsub("LUA", "Lua");
+								description = string.format("Asked *%s*\nTags: %s",
+									os.date("!%A %H:%M:%S UTC", time(question.creation_date)),
+									table.concat(question.tags, ", "):gsub("[^,%s]+", "`%0`")
+								);
+								url = question.link;
+								color = '16023588';
+							};
 						};
-					};
-					username = question.owner.display_name;
-					avatar_url = question.owner.profile_image;
-				}
-				local response = client:request("POST", options.webhook, body, { headers = { ["Content-Type"]="application/json" } })
+						username = question.owner.display_name;
+						avatar_url = question.owner.profile_image;
+					}
+					local response = client:request("POST", options.webhook, body, { headers = { ["Content-Type"]="application/json" } })
+				end
 			end
+
+			known = new
+
+			fiber.sleep(options.interval)
 		end
-
-		known = new
-
-		fiber.sleep(options.interval)
-	end
+	end, function(err)
+		print(err)
+		os.exit()
+	end)
 end)
